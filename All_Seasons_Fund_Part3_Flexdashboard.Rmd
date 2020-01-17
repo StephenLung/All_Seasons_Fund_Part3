@@ -1,0 +1,190 @@
+---
+title: "All Weather Fund Flex Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+setwd("C:/Users/steph/Dropbox/Business University Science/102 Course/DS4B_102_R_Shiny_Apps_1/Personal Portfolio")
+
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load("DT",
+               "flexdashboard",
+               "shiny",
+               "tidyverse",
+               "tidyquant")
+
+```
+
+
+```{r}
+# 1.0 IMPORT DATA ----
+
+symbols <- c("VTI", "TLT", "IEF", "GLD", "DBC")
+end     <- "2019-11-30" %>% ymd()
+start   <- end - years(5) + days(1)
+w <- c(0.3,
+       0.4,
+       0.15,
+       0.075,
+       0.075)
+wts_tbl <- tibble(symbols, w)
+source(file = "00_Scripts/portfolio_multi_period_data.R")
+source(file = "00_Scripts/import_FF.R")
+
+# All seasons data and portfolio
+portfolio_training_data <- portfolio_multi_period_data(symbols, end, start, wts_tbl, period = "monthly")
+all_seasons_asset <- individual_asset_multi_period_data(symbols, end, start, period = "monthly")
+returns_port_tbl <- portfolio_training_data %>% 
+    rbind(all_seasons_asset) %>% 
+    mutate(symbol = str_replace_all(symbol, c("VTI" = "Stocks",
+                                    "TLT" = "Long Term Bonds",
+                                    "IEF" = "Medium Term Bonds",
+                                    "GLD" = "Gold",
+                                    "DBC" = "Commodities")))
+
+```
+
+Sidebar {.sidebar}
+----------------------------
+
+```{r}
+# Inputs
+# checkboxGroupInput(inputId = "asset_name", 
+#                    label = "Select the tickers",
+#                    choices = c("Stocks" = "VTI", 
+#                                 "Long Term Bonds" = "TLT",
+#                                 "Medium Term Bonds" = "IEF",
+#                                 "Gold" = "GLD", 
+#                                 "Commodities" = "DBC"),
+#                    selected = c("VTI", "TLT", "IEF", "GLD", "DBC"))
+
+checkboxGroupInput(inputId = "asset_name", 
+                   label = "Select the tickers",
+                   choices = c("Stocks", 
+                                "Long Term Bonds",
+                                "Medium Term Bonds",
+                                "Gold", 
+                                "Commodities"),
+                   selected = c("Stocks", "Long Term Bonds", "Medium Term Bonds", "Gold", "Commodities"))
+
+radioButtons(inputId = "return_timing", 
+                   label = "Select the format",
+                   choices = c("monthly",
+                               "daily"),
+                   selected = c("monthly"))
+
+
+dateRangeInput(inputId = "date_range",
+               label = "Select the date range",
+               start = min(returns_port_tbl$date),
+               end = max(returns_port_tbl$date),
+               min = min(returns_port_tbl$date),
+               max = max(returns_port_tbl$date),
+               startview = "year")
+
+```
+
+
+```{r}
+# Reset button
+actionButton(inputId = "reset",
+             label = "Reset",
+             icon = icon("sync"))
+
+observeEvent(eventExpr = input$reset,
+             handlerExpr = {
+                 updateCheckboxGroupInput(session = session,
+                                          inputId = "asset_name",
+                                          selected = c("Stocks", "Long Term Bonds", "Medium Term Bonds", "Gold", "Commodities"))
+                 
+             updateRadioButtons(session = session,
+                                inputId = "return_timing",
+                                selected = c("monthly"))
+             
+             updateDateRangeInput(session = session,
+                                  inputId = "Select the date range", 
+                                  start = min(returns_port_tbl$date),
+                                  end = max(returns_port_tbl$date)
+                                  )
+             })
+```
+
+
+Column {data-width = 500}
+----------------------------
+
+### Section - Checkbox Output
+
+```{r}
+renderPrint(input$asset_name)
+
+# verbatimTextOutput(outputId = "asset_name_values")
+
+```
+
+### Section - Checkbox Output #2
+
+```{r}
+output$asset_name_values <- renderPrint(input$asset_name)
+
+textOutput(outputId = "asset_name_values")
+```
+
+### Section - Date Range
+
+```{r}
+output$date_range_values <- renderPrint(input$date_range)
+textOutput(outputId = "date_range_values")
+```
+
+
+Column {data-width = 750}
+---------------------------
+
+```{r}
+
+# Reactive filter based on user inputs
+returns_port_tbl_filtered <- reactive({
+    returns_port_tbl %>%
+        filter(symbol %in% input$asset_name) %>%
+        filter(date %>% between(left = ymd(input$date_range[1]),
+                                right = ymd(input$date_range[2])))
+        })
+
+
+
+
+```
+
+### Section - Reactive Output
+```{r}
+
+# First table to showcase returns
+output$returns_datatbl_1 <- DT::renderDataTable(expr = {
+    returns_port_tbl_filtered() %>% 
+        mutate(monthly.returns = scales::percent(monthly.returns))
+        
+        },
+                    options = list(scrollY = "250px"))
+DT::DTOutput(outputId = "returns_datatbl_1")
+```
+
+
+### Section - Reactive Summary
+```{r}
+
+# Second table to showcase a summary
+output$returns_datatbl_2 <- DT::renderDataTable(expr = {
+    returns_port_tbl_filtered() %>% 
+        group_by(symbol) %>% 
+        summarize(n = n())
+        
+        },
+                    options = list(scrollY = "250px"))
+DT::DTOutput(outputId = "returns_datatbl_2")
+```
+
